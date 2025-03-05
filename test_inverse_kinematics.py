@@ -133,8 +133,8 @@ if __name__ == "__main__":
     obs, actions, fingertip_pos, hand_joints = dataloader.sample_a_episode()
     print(f"obs shape: {obs.shape}, actions shape: {actions.shape}, fingertip_pos shape: {fingertip_pos.shape}, hand_joints shape: {hand_joints.shape}")
     # import ipdb; ipdb.set_trace()
-    fingertip_pos = fingertip_pos[0:197, :]
-    actions = actions[0:197, :]
+    # fingertip_pos = fingertip_pos[0:197, :]
+    # actions = actions[0:197, :]
     # print(f"actions shape: {actions.shape}") # (197, 39)
     seq_len = fingertip_pos.shape[0]
 
@@ -236,7 +236,8 @@ if __name__ == "__main__":
         reward += timestep.reward
         timesteps.set_description(f"Reward: {reward:.2f}")
         if timestep.last():
-            break
+            # break
+            env.reset()
 
     print(env.get_musical_metrics())
 
