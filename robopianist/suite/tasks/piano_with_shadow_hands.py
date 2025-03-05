@@ -23,6 +23,7 @@ from dm_control.composer import variation as base_variation
 from dm_control.composer.observation import observable
 from dm_control.mjcf import commit_defaults
 from dm_control.utils.rewards import tolerance
+from dm_control.mujoco.wrapper import mjbindings
 from dm_env import specs
 from mujoco_utils import collision_utils, spec_utils
 
@@ -44,6 +45,36 @@ _FINGERTIP_ALPHA = 1.0
 
 # Bounds for the uniform distribution from which initial hand offset is sampled.
 _POSITION_OFFSET = 0.05
+
+
+def cslice(lst, a, b):
+    """ Cricular slice of a list lst.
+        It supports two format. if b excess the length of lst or if b is less than a, append elements from the starting points
+    """
+    length = len(lst)
+    if b>=a:
+        if b > length:
+            _temp_list = lst[a:]
+            remain = b - length
+            while remain > length: # recursively append
+                _temp_list = _temp_list + lst[:]
+                remain = remain - length
+            return _temp_list + lst[:remain]
+        else: # normal
+            return lst[a:b]
+    else:
+        return lst[a:] + b[:b]
+
+def random_limited_quaternion(random, limit):
+  """Generates a random quaternion limited to the specified rotations."""
+  axis = random.randn(3)
+  axis /= np.linalg.norm(axis)
+  angle = random.rand() * limit
+
+  quaternion = np.zeros(4)
+  mjbindings.mjlib.mju_axisAngle2Quat(quaternion, axis, angle)
+
+  return quaternion
 
 
 class PianoWithShadowHands(base.PianoTask):
@@ -117,6 +148,8 @@ class PianoWithShadowHands(base.PianoTask):
         self._augmentations = augmentations
         self._energy_penalty_coef = energy_penalty_coef
         self._randomize_hand_positions = randomize_hand_positions
+        self._slice_music_length = 0
+        self._slice_music_idx = 0
 
         if not disable_fingering_reward and not disable_colorization:
             self._colorize_fingertips()
@@ -156,14 +189,32 @@ class PianoWithShadowHands(base.PianoTask):
             self._midi = midi
             self._reset_trajectory()
 
+    # def _reset_trajectory(self) -> None:
+    #     note_traj = midi_file.NoteTrajectory.from_midi(
+    #         self._midi, self.control_timestep
+    #     )
+    #     note_traj.add_initial_buffer_time(self._initial_buffer_time)
+    #     self._notes = note_traj.notes
+    #     self._sustains = note_traj.sustains
+
     def _reset_trajectory(self) -> None:
         note_traj = midi_file.NoteTrajectory.from_midi(
             self._midi, self.control_timestep
         )
         note_traj.add_initial_buffer_time(self._initial_buffer_time)
+        # notes includes # of steps PianoNote pairs. Each step includes a left hand and right hand note.
+        # PianoNote includes note number, velocity, key, name and fingering if available.
         self._notes = note_traj.notes
         self._sustains = note_traj.sustains
 
+        if self._slice_music_length > 0:
+            # select a slice of notes according to pre-defined length and idx
+            slice_len = int(self._slice_music_length)
+            slice_start_idx = int(self._slice_music_idx)
+            slice_end_idx = int(self._slice_music_idx + slice_len)
+            # cricular slice
+            self._notes = cslice(self._notes, slice_start_idx, slice_end_idx)
+            self._sustains = cslice(self._sustains, slice_start_idx, slice_end_idx)
     # Composer methods.
 
     def initialize_episode(
